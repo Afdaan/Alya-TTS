@@ -232,6 +232,42 @@ class VoiceProcessor:
         except Exception:
             return audio_path
 
+    def cleanup(self):
+        """Explicitly release heavy resources to free system RAM."""
+        logger.info("🧹 Performing deep cleanup of VoiceProcessor resources...")
+        
+        if hasattr(self, 'rvc_handler') and self.rvc_handler:
+            try:
+                if hasattr(self.rvc_handler, 'rvc') and self.rvc_handler.rvc:
+                    logger.info("Unloading RVC model...")
+                    self.rvc_handler.rvc.unload_model()
+                    # Deep delete
+                    self.rvc_handler.rvc.vc = None
+                    self.rvc_handler.rvc = None
+            except Exception as e:
+                logger.warning(f"Error unloading RVC: {e}")
+            self.rvc_handler = None
+            
+        # Clear global registries in rvc_python that cause leaks
+        try:
+            from rvc_python.modules.vc.pipeline import input_audio_path2wav, cache_harvest_f0
+            input_audio_path2wav.clear()
+            cache_harvest_f0.cache_clear()
+            logger.info("Cleared RVC pipeline global caches.")
+        except: pass
+
+        # Force Torch to release memory
+        try:
+            import torch
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # For CPU torch, we just hope GC reclaimed the tensors
+        except: pass
+        
+        logger.info("✅ Cleanup complete.")
+
     def _clean_text_for_tts(self, text: str) -> str:
         """Clean text for TTS processing."""
         # Remove formatting

@@ -64,16 +64,28 @@ class ModelManager:
             await asyncio.sleep(60) # Check every minute
             if self._voice_processor and (time.time() - self.last_active_time > self.idle_timeout):
                 async with self.lock:
-                    if time.time() - self.last_active_time > self.idle_timeout:
+                    if self._voice_processor and (time.time() - self.last_active_time > self.idle_timeout):
                         logger.info("😴 Idle timeout reached. Unloading models to free up system resources...")
+                        
+                        try:
+                            # Explicit cleanup call
+                            self._voice_processor.cleanup()
+                        except Exception as e:
+                            logger.error(f"Error during model cleanup: {e}")
+                            
                         self._voice_processor = None
-                        # Force garbage collection
+                        
+                        # Force aggressive garbage collection
                         gc.collect()
+                        gc.collect() # Second pass for cycle detection
+                        
                         try:
                             import torch
                             if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
                         except: pass
+                        
+                        logger.info("✨ Cleanup finished. System should notice reduced RAM usage shortly.")
 
 model_manager = ModelManager()
 
