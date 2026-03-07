@@ -104,9 +104,12 @@ class RVCHandler:
             # Run inference in thread pool with timeout
             await asyncio.wait_for(
                 asyncio.to_thread(self.rvc.infer_file, audio_path, output_path),
-                timeout=60.0
+                timeout=600.0
             )
             return os.path.exists(output_path)
+        except asyncio.TimeoutError:
+            logger.error("❌ RVC Conversion error: Timeout after 600 seconds")
+            return False
         except Exception as e:
-            logger.error(f"❌ RVC Conversion error: {e}")
+            logger.error(f"❌ RVC Conversion error: {e}", exc_info=True)
             return False
