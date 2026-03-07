@@ -239,9 +239,15 @@ class VoiceProcessor:
         if hasattr(self, 'rvc_handler') and self.rvc_handler:
             try:
                 if hasattr(self.rvc_handler, 'rvc') and self.rvc_handler.rvc:
-                    logger.info("Unloading RVC model...")
+                    logger.info("Unloading RVC model and clearing heavy tensors...")
+                    
+                    # Clear internal RVC components before dropping the object
+                    if hasattr(self.rvc_handler.rvc, 'vc') and self.rvc_handler.rvc.vc:
+                        self.rvc_handler.rvc.vc.net_g = None
+                        self.rvc_handler.rvc.vc.hubert_model = None
+                        self.rvc_handler.rvc.vc.pipeline = None
+                    
                     self.rvc_handler.rvc.unload_model()
-                    # Deep delete
                     self.rvc_handler.rvc.vc = None
                     self.rvc_handler.rvc = None
             except Exception as e:
@@ -256,17 +262,32 @@ class VoiceProcessor:
             logger.info("Cleared RVC pipeline global caches.")
         except: pass
 
-        # Force Torch to release memory
+        # Force Torch and Python GC
         try:
             import torch
             import gc
+            import ctypes
+            
+            # 1. GC collect multiple times to handle circular refs
             gc.collect()
+            gc.collect()
+            
+            # 2. CUDA cleanup (if any)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            # For CPU torch, we just hope GC reclaimed the tensors
+            
+            # 3. CRITICAL: Force glibc to release memory back to OS
+            # This is essential on Linux VPS to see RAM usage drop in htop
+            try:
+                libc = ctypes.CDLL("libc.so.6")
+                libc.malloc_trim(0)
+                logger.info("✨ Called malloc_trim(0): RAM should be returned to OS.")
+            except Exception as e:
+                logger.debug(f"malloc_trim not available or failed: {e}")
+                
         except: pass
         
-        logger.info("✅ Cleanup complete.")
+        logger.info("✅ Deep cleanup complete.")
 
     def _clean_text_for_tts(self, text: str) -> str:
         """Clean text for TTS processing."""
