@@ -234,60 +234,84 @@ class VoiceProcessor:
 
     def cleanup(self):
         """Explicitly release heavy resources to free system RAM."""
-        logger.info("🧹 Performing deep cleanup of VoiceProcessor resources...")
+        logger.info("🧹 Performing EXTREME cleanup of VoiceProcessor resources...")
         
         if hasattr(self, 'rvc_handler') and self.rvc_handler:
             try:
+                # 1. Break down RVC internal structures piece by piece
                 if hasattr(self.rvc_handler, 'rvc') and self.rvc_handler.rvc:
-                    logger.info("Unloading RVC model and clearing heavy tensors...")
+                    logger.info("Breaking RVC internal references...")
+                    rvc = self.rvc_handler.rvc
                     
-                    # Clear internal RVC components before dropping the object
-                    if hasattr(self.rvc_handler.rvc, 'vc') and self.rvc_handler.rvc.vc:
-                        self.rvc_handler.rvc.vc.net_g = None
-                        self.rvc_handler.rvc.vc.hubert_model = None
-                        self.rvc_handler.rvc.vc.pipeline = None
+                    if hasattr(rvc, 'vc') and rvc.vc:
+                        vc = rvc.vc
+                        # Clear heavy model weights
+                        vc.net_g = None
+                        vc.hubert_model = None
+                        vc.pipeline = None
+                        vc.cpt = None # The loaded torch state dict
+                        vc.config = None
+                        # Delete the VC object attributes
+                        for attr in list(vc.__dict__.keys()):
+                            delattr(vc, attr)
                     
-                    self.rvc_handler.rvc.unload_model()
-                    self.rvc_handler.rvc.vc = None
-                    self.rvc_handler.rvc = None
+                    rvc.unload_model()
+                    rvc.vc = None
+                    rvc.models = {} # Clear the paths dictionary
+                    # Delete RVCInference attributes
+                    for attr in list(rvc.__dict__.keys()):
+                        delattr(rvc, attr)
+                    
+                self.rvc_handler.rvc = None
             except Exception as e:
-                logger.warning(f"Error unloading RVC: {e}")
+                logger.warning(f"Error during RVC deep unload: {e}")
             self.rvc_handler = None
             
-        # Clear global registries in rvc_python that cause leaks
+        # 2. Clear known global leaks in RVC library modules
         try:
-            from rvc_python.modules.vc.pipeline import input_audio_path2wav, cache_harvest_f0
-            input_audio_path2wav.clear()
-            cache_harvest_f0.cache_clear()
-            logger.info("Cleared RVC pipeline global caches.")
+            import sys
+            # Clear pipeline globals
+            if 'rvc_python.modules.vc.pipeline' in sys.modules:
+                mod = sys.modules['rvc_python.modules.vc.pipeline']
+                if hasattr(mod, 'input_audio_path2wav'):
+                    mod.input_audio_path2wav.clear()
+                if hasattr(mod, 'cache_harvest_f0'):
+                    mod.cache_harvest_f0.cache_clear()
+            
+            # Clear any potential globals in other RVC modules
+            for mod_name in list(sys.modules.keys()):
+                if mod_name.startswith('rvc_python'):
+                    # We don't delete the module, but we can try to clear its globals
+                    # especially hidden ones like '__cache__' or heavy lists
+                    pass 
+            logger.info("Cleared RVC library internal caches.")
         except: pass
 
-        # Force Torch and Python GC
+        # 3. Force Torch and Python GC to the maximum
         try:
             import torch
             import gc
             import ctypes
             
-            # 1. GC collect multiple times to handle circular refs
-            gc.collect()
-            gc.collect()
+            # Nullify any torch related stuff that might be in scope
+            torch.cuda.empty_cache()
             
-            # 2. CUDA cleanup (if any)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Multiple GC passes to catch nested cycles
+            for _ in range(3):
+                gc.collect()
             
-            # 3. CRITICAL: Force glibc to release memory back to OS
-            # This is essential on Linux VPS to see RAM usage drop in htop
+            # 4. CRITICAL: Force glibc to release all possible memory
             try:
                 libc = ctypes.CDLL("libc.so.6")
+                # 0 means return all free blocks 
                 libc.malloc_trim(0)
-                logger.info("✨ Called malloc_trim(0): RAM should be returned to OS.")
+                logger.info("✨ Executed malloc_trim(0).")
             except Exception as e:
-                logger.debug(f"malloc_trim not available or failed: {e}")
+                logger.debug(f"malloc_trim failed: {e}")
                 
         except: pass
         
-        logger.info("✅ Deep cleanup complete.")
+        logger.info("✅ Extreme cleanup complete. RAM resident set should drop now.")
 
     def _clean_text_for_tts(self, text: str) -> str:
         """Clean text for TTS processing."""
