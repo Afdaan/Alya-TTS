@@ -1,13 +1,21 @@
 import os
+import sys
 import asyncio
 import logging
 import gc
 import time
+from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from telegram import Bot
 from dotenv import load_dotenv
+
+# Ensure libs directory is in sys.path for local vendorized packages (e.g. rvc_python)
+BASE_DIR = Path(__file__).resolve().parent
+LIBS_PATH = BASE_DIR / "libs"
+if str(LIBS_PATH) not in sys.path:
+    sys.path.insert(0, str(LIBS_PATH))
 
 # Setup logging
 logging.basicConfig(

@@ -143,7 +143,7 @@ class Pipeline(object):
             f0 = f0[0].cpu().numpy()
         elif f0_method == "rmvpe":
             if not hasattr(self, "model_rmvpe"):
-                from rvc_python.lib.rmvpe import RMVPE
+                from ...lib.rmvpe import RMVPE
 
                 logger.info(
                     "Loading rmvpe model - base_models/rmvpe.pth"

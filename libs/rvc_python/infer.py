@@ -4,9 +4,9 @@ import os
 from glob import glob
 import soundfile as sf
 from scipy.io import wavfile
-from rvc_python.modules.vc.modules import VC
-from rvc_python.configs.config import Config
-from rvc_python.download_model import download_rvc_models
+from .modules.vc.modules import VC
+from .configs.config import Config
+from .download_model import download_rvc_models
 
 class RVCInference:
     def __init__(self, models_dir="rvc_models", device="cpu:0", model_path=None, index_path="", version="v2"):

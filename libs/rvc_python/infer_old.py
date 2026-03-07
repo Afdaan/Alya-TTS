@@ -1,14 +1,11 @@
 
-from rvc_python.modules.vc.modules import VC
-from rvc_python.configs.config import Config
+from .modules.vc.modules import VC
+from .configs.config import Config
+from .download_model import download_rvc_models
 from scipy.io import wavfile
 import os
-
 from glob import glob
 import soundfile as sf
-
-from rvc_python.modules.vc.modules import VC
-from rvc_python.download_model import download_rvc_models
 
 def infer_file(
     input_path,

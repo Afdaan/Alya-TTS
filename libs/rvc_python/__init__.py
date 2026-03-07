@@ -1,1 +1,1 @@
-import rvc_python.infer
+from . import infer

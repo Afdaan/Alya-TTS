@@ -21,8 +21,8 @@ import librosa
 import numpy as np
 from scipy.io import wavfile
 
-from rvc_python.lib.audio import load_audio
-from rvc_python.lib.slicer2 import Slicer
+from ...lib.audio import load_audio
+from ...lib.slicer2 import Slicer
 
 mutex = multiprocessing.Lock()
 f = open("%s/preprocess.log" % exp_dir, "a+")

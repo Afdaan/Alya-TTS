@@ -27,29 +27,45 @@ class RVCHandler:
         """Initialize RVC components."""
         try:
             if not self.model_path.exists() or not self.index_path.exists():
-                logger.error("❌ RVC model or index files missing")
+                logger.error(f"❌ RVC model or index files missing: {self.model_path} or {self.index_path}")
                 return
             
             import sys
+            import importlib.util
+            from pathlib import Path
+
             # Absolute path to libs
-            base_dir = Path(__file__).parent.parent.absolute()
-            libs_path = str(base_dir / "libs")
+            current_file = Path(__file__).resolve()
+            base_dir = current_file.parent.parent
+            libs_path = base_dir / "libs"
+            rvc_root = libs_path / "rvc_python"
             
-            if libs_path not in sys.path:
-                sys.path.insert(0, libs_path)
+            if not rvc_root.exists():
+                logger.error(f"❌ rvc_python not found in {libs_path}")
+                return
+
+            if str(libs_path) not in sys.path:
+                sys.path.insert(0, str(libs_path))
             
+            # Helper to check for submodules
+            if not (rvc_root / "lib" / "__init__.py").exists():
+                logger.warning(f"⚠️ Warning: {rvc_root / 'lib' / '__init__.py'} missing. Attempting to fix...")
+                (rvc_root / "lib" / "__init__.py").touch()
+
             # Force reload if it was already loaded from site-packages
             if 'rvc_python' in sys.modules:
                 for mod in list(sys.modules.keys()):
                     if mod.startswith('rvc_python'):
                         del sys.modules[mod]
             
-            from rvc_python.infer import RVCInference
+            # Log for debugging
+            logger.info(f"🔍 RVC Root: {rvc_root}")
+            
             import torch
+            from rvc_python.infer import RVCInference
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if device == "cpu":
-                # Limit threads to avoid overloading CPU during RVC inference
                 torch.set_num_threads(min(4, torch.get_num_threads()))
             self.device = device
             
@@ -59,7 +75,7 @@ class RVCHandler:
             logger.info(f"✅ RVC Handler ready on {self.device}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize RVC: {e}")
+            logger.error(f"❌ Failed to initialize RVC: {e}", exc_info=True)
             self.is_available = False
             
     async def convert_voice(self, audio_path: str, output_path: str) -> bool:
