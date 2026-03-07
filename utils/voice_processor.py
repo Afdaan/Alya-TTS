@@ -74,8 +74,12 @@ class VoiceProcessor:
                 
         return base_tts_available
     
-    async def transcribe_audio(self, audio_path: str, lang: str = "id") -> Optional[Tuple[str, str]]:
+    async def transcribe_audio(self, audio_path: str, lang: str = None) -> Optional[Tuple[str, str]]:
         """Transcribe audio to text using Google Speech Recognition."""
+        if lang is None:
+            from config.settings import DEFAULT_LANGUAGE
+            lang = DEFAULT_LANGUAGE
+            
         if not self.recognizer:
             return None
             
@@ -189,17 +193,14 @@ class VoiceProcessor:
     async def _generate_edge_tts(self, text: str, lang: str) -> Optional[str]:
         """Generate TTS using edge-tts."""
         try:
-            rvc_active = self.rvc_handler and self.rvc_handler.is_available
-            if rvc_active:
-                voice = "ja-JP-NanamiNeural"
-            else:
-                voice_map = {
-                    "en": "en-US-AnaNeural",
-                    "id": "id-ID-GadisNeural",
-                    "ru": "ru-RU-SvetlanaNeural",
-                    "jp": "ja-JP-NanamiNeural"
-                }
-                voice = voice_map.get(lang, "en-US-AnaNeural")
+            voice_map = {
+                "en": "en-US-AnaNeural",
+                "id": "id-ID-GadisNeural",
+                "ru": "ru-RU-SvetlanaNeural",
+                "jp": "ja-JP-NanamiNeural"
+            }
+            voice = voice_map.get(lang, "en-US-AnaNeural")
+            
             mp3_path = str(self.temp_dir / f"tts_{os.getpid()}_{os.urandom(4).hex()}.mp3")
             
             communicate = self.edge_tts.Communicate(text, voice)
@@ -214,7 +215,8 @@ class VoiceProcessor:
         """Generate TTS using gTTS."""
         try:
             mp3_path = str(self.temp_dir / f"tts_{os.getpid()}_{os.urandom(4).hex()}.mp3")
-            tts = self.gtts(text=text, lang=lang, slow=False)
+            gtts_lang = "ja" if lang == "jp" else lang
+            tts = self.gtts(text=text, lang=gtts_lang, slow=False)
             await asyncio.to_thread(tts.save, mp3_path)
             return mp3_path
         except Exception:

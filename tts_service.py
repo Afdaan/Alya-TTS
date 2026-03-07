@@ -32,7 +32,7 @@ app = FastAPI(title="Alya TTS Microservice (Resource Balanced)")
 class TTSRequest(BaseModel):
     text: str
     voice_lang: str = "en"
-    user_lang: str = "id"
+    user_lang: str = "en"  # Default to 'en', but bot should pass current pref
     chat_id: int
     reply_to_message_id: Optional[int] = None
     bot_token: Optional[str] = None
@@ -51,6 +51,9 @@ class ModelManager:
                 logger.info("⚡ Cold Start: Loading RVC & Torch models into memory...")
                 from utils.voice_processor import VoiceProcessor
                 self._voice_processor = VoiceProcessor()
+                # Ensure the processor's defaults match our config
+                from config.settings import DEFAULT_LANGUAGE
+                self.default_lang = DEFAULT_LANGUAGE
             
             self.last_active_time = time.time()
             return self._voice_processor
@@ -93,8 +96,15 @@ async def process_tts_job(request: TTSRequest):
         # Get processor (Trigger lazy load if needed)
         processor = await model_manager.get_processor()
         
-        logger.info(f"Generating voice for chat {request.chat_id}...")
-        voice_path = await processor.text_to_speech(request.text, request.voice_lang)
+        # Determine target language: use voice_lang, but fallback to user_lang if voice_lang is default/unset
+        # This ensures it follows user preference if not explicitly overridden
+        target_lang = request.voice_lang
+        if target_lang == "en" and request.user_lang and request.user_lang != "en":
+            target_lang = request.user_lang
+            logger.info(f"Using user_lang ({target_lang}) as fallback for default voice_lang")
+
+        logger.info(f"Generating voice for chat {request.chat_id} (lang: {target_lang})...")
+        voice_path = await processor.text_to_speech(request.text, target_lang)
         
         if not voice_path or not os.path.exists(voice_path):
             logger.error(f"Failed to generate voice for chat {request.chat_id}")
@@ -104,7 +114,7 @@ async def process_tts_job(request: TTSRequest):
             await bot.send_voice(
                 chat_id=request.chat_id,
                 voice=vf,
-                caption=f"🎙️ Alya's voice ({request.voice_lang.upper()})",
+                caption=f"🎙️ Alya's voice ({target_lang.upper()})",
                 reply_to_message_id=request.reply_to_message_id
             )
             
