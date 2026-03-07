@@ -47,10 +47,24 @@ class RVCHandler:
             if str(libs_path) not in sys.path:
                 sys.path.insert(0, str(libs_path))
             
-            # Helper to check for submodules
-            if not (rvc_root / "lib" / "__init__.py").exists():
-                logger.warning(f"⚠️ Warning: {rvc_root / 'lib' / '__init__.py'} missing. Attempting to fix...")
-                (rvc_root / "lib" / "__init__.py").touch()
+            # Robust check for 'lib' directory (case-insensitive for safety, but usually 'lib')
+            lib_dir = rvc_root / "lib"
+            if not lib_dir.exists():
+                # Check for 'Lib' just in case of environment differences
+                if (rvc_root / "Lib").exists():
+                    lib_dir = rvc_root / "Lib"
+            
+            if lib_dir.exists():
+                init_file = lib_dir / "__init__.py"
+                if not init_file.exists():
+                    logger.warning(f"⚠️ Warning: {init_file} missing. Attempting to fix...")
+                    try:
+                        init_file.touch()
+                    except Exception as e:
+                        logger.error(f"❌ Could not create {init_file}: {e}")
+            else:
+                logger.error(f"❌ Critical: 'lib' directory not found in {rvc_root}")
+                return
 
             # Force reload if it was already loaded from site-packages
             if 'rvc_python' in sys.modules:
