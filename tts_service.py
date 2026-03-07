@@ -42,7 +42,7 @@ class ModelManager:
     def __init__(self):
         self._voice_processor = None
         self.last_active_time = 0
-        self.idle_timeout = 300  # 5 minutes (adjust as needed)
+        self.idle_timeout = 120  # Reduced to 2 minutes for faster RAM release
         self.lock = asyncio.Lock()
 
     async def get_processor(self):
@@ -127,7 +127,10 @@ async def process_tts_job(request: TTSRequest):
                 chat_id=request.chat_id,
                 voice=vf,
                 caption=f"🎙️ Alya's voice ({target_lang.upper()})",
-                reply_to_message_id=request.reply_to_message_id
+                reply_to_message_id=request.reply_to_message_id,
+                read_timeout=120,    # Increased timeout for slow connections
+                write_timeout=120,
+                connect_timeout=60
             )
             
         # Cleanup file after sending
