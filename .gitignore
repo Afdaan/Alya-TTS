@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!libs/rvc_python/lib/
 lib64/
 parts/
 sdist/
