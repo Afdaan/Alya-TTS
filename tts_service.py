@@ -17,22 +17,25 @@ LIBS_PATH = BASE_DIR / "libs"
 if str(LIBS_PATH) not in sys.path:
     sys.path.insert(0, str(LIBS_PATH))
 
+# Load environment variables
+load_dotenv()
+
 # Setup logging
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("TTS-Service")
-
-# Load environment variables
-load_dotenv()
 
 app = FastAPI(title="Alya TTS Microservice (Resource Balanced)")
 
 class TTSRequest(BaseModel):
     text: str
     voice_lang: str = "en"
-    user_lang: str = "en"  # Default to 'en', but bot should pass current pref
+    user_lang: str = "en"
     chat_id: int
     reply_to_message_id: Optional[int] = None
     bot_token: Optional[str] = None
@@ -42,7 +45,8 @@ class ModelManager:
     def __init__(self):
         self._voice_processor = None
         self.last_active_time = 0
-        self.idle_timeout = 120  # Reduced to 2 minutes for faster RAM release
+        from config.settings import TTS_IDLE_TIMEOUT
+        self.idle_timeout = TTS_IDLE_TIMEOUT
         self.lock = asyncio.Lock()
 
     async def get_processor(self):
@@ -51,7 +55,6 @@ class ModelManager:
                 logger.info("⚡ Cold Start: Loading RVC & Torch models into memory...")
                 from utils.voice_processor import VoiceProcessor
                 self._voice_processor = VoiceProcessor()
-                # Ensure the processor's defaults match our config
                 from config.settings import DEFAULT_LANGUAGE
                 self.default_lang = DEFAULT_LANGUAGE
             
@@ -68,16 +71,14 @@ class ModelManager:
                         logger.info("😴 Idle timeout reached. Unloading models to free up system resources...")
                         
                         try:
-                            # Explicit cleanup call
                             self._voice_processor.cleanup()
                         except Exception as e:
                             logger.error(f"Error during model cleanup: {e}")
                             
                         self._voice_processor = None
                         
-                        # Force aggressive garbage collection
                         gc.collect()
-                        gc.collect() # Second pass for cycle detection
+                        gc.collect()
                         
                         try:
                             import torch
@@ -91,7 +92,6 @@ model_manager = ModelManager()
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the idle cleanup monitor
     asyncio.create_task(model_manager.cleanup_if_idle())
     logger.info("🚀 TTS Service started and monitoring idle resource...")
 
@@ -105,17 +105,15 @@ async def process_tts_job(request: TTSRequest):
 
         bot = Bot(token=token)
         
-        # Get processor (Trigger lazy load if needed)
         processor = await model_manager.get_processor()
         
-        # Determine target language: use voice_lang, but fallback to user_lang if voice_lang is default/unset
-        # This ensures it follows user preference if not explicitly overridden
+        # Use voice_lang; fallback to user_lang when voice_lang is unset (default 'en')
         target_lang = request.voice_lang
         if target_lang == "en" and request.user_lang and request.user_lang != "en":
             target_lang = request.user_lang
             logger.info(f"Using user_lang ({target_lang}) as fallback for default voice_lang")
 
-        logger.info(f"Generating voice for chat {request.chat_id} (lang: {target_lang})...")
+        logger.info(f"Generating voice for chat {request.chat_id} (lang: {target_lang})")
         voice_path = await processor.text_to_speech(request.text, target_lang)
         
         if not voice_path or not os.path.exists(voice_path):
@@ -123,17 +121,17 @@ async def process_tts_job(request: TTSRequest):
             return
             
         with open(voice_path, 'rb') as vf:
+            from config.settings import TTS_SEND_TIMEOUT
             await bot.send_voice(
                 chat_id=request.chat_id,
                 voice=vf,
                 caption=f"🎙️ Alya's voice ({target_lang.upper()})",
                 reply_to_message_id=request.reply_to_message_id,
-                read_timeout=120,    # Increased timeout for slow connections
-                write_timeout=120,
+                read_timeout=TTS_SEND_TIMEOUT,
+                write_timeout=TTS_SEND_TIMEOUT,
                 connect_timeout=60
             )
             
-        # Cleanup file after sending
         if os.path.exists(voice_path):
             os.unlink(voice_path)
             

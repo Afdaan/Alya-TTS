@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import (
-    RVC_DEVICE, RVC_PITCH_CHANGE,
+    RVC_DEVICE, RVC_CPU_THREADS, RVC_PITCH_CHANGE,
     RVC_F0_METHOD, RVC_INDEX_RATE, RVC_VOLUME_ENVELOPE, RVC_PROTECT,
     RVC_RESAMPLE_SR
 )
@@ -34,7 +34,6 @@ class RVCHandler:
             import importlib.util
             from pathlib import Path
 
-            # Absolute path to libs
             current_file = Path(__file__).resolve()
             base_dir = current_file.parent.parent
             libs_path = base_dir / "libs"
@@ -47,32 +46,28 @@ class RVCHandler:
             if str(libs_path) not in sys.path:
                 sys.path.insert(0, str(libs_path))
             
-            # Robust check for 'lib' directory (case-insensitive for safety, but usually 'lib')
             lib_dir = rvc_root / "lib"
             if not lib_dir.exists():
-                # Check for 'Lib' just in case of environment differences
                 if (rvc_root / "Lib").exists():
                     lib_dir = rvc_root / "Lib"
             
             if lib_dir.exists():
                 init_file = lib_dir / "__init__.py"
                 if not init_file.exists():
-                    logger.warning(f"⚠️ Warning: {init_file} missing. Attempting to fix...")
+                    logger.warning(f"⚠️ {init_file} missing, creating...")
                     try:
                         init_file.touch()
                     except Exception as e:
                         logger.error(f"❌ Could not create {init_file}: {e}")
             else:
-                logger.error(f"❌ Critical: 'lib' directory not found in {rvc_root}")
+                logger.error(f"❌ 'lib' directory not found in {rvc_root}")
                 return
 
-            # Force reload if it was already loaded from site-packages
             if 'rvc_python' in sys.modules:
                 for mod in list(sys.modules.keys()):
                     if mod.startswith('rvc_python'):
                         del sys.modules[mod]
             
-            # Log for debugging
             logger.info(f"🔍 RVC Root: {rvc_root}")
             
             import torch
@@ -80,13 +75,24 @@ class RVCHandler:
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if device == "cpu":
-                torch.set_num_threads(min(4, torch.get_num_threads()))
+                torch.set_num_threads(min(RVC_CPU_THREADS, torch.get_num_threads()))
             self.device = device
             
             self.rvc = RVCInference(device=self.device)
             self.rvc.load_model(str(self.model_path))
+            
+            # Apply configured RVC parameters
+            self.rvc.set_params(
+                f0up_key=RVC_PITCH_CHANGE,
+                f0method=RVC_F0_METHOD,
+                index_rate=RVC_INDEX_RATE,
+                rms_mix_rate=RVC_VOLUME_ENVELOPE,
+                protect=RVC_PROTECT,
+                resample_sr=RVC_RESAMPLE_SR
+            )
+            
             self.is_available = True
-            logger.info(f"✅ RVC Handler ready on {self.device}")
+            logger.info(f"✅ RVC Handler ready on {self.device} (f0={RVC_F0_METHOD}, pitch={RVC_PITCH_CHANGE})")
             
         except Exception as e:
             logger.error(f"❌ Failed to initialize RVC: {e}", exc_info=True)

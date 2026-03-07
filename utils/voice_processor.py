@@ -20,9 +20,10 @@ class VoiceProcessor:
         self.temp_dir = Path("tmp")
         self.temp_dir.mkdir(exist_ok=True)
         
-        self.model_dir = Path("alya_voice")
-        self.model_path = self.model_dir / "alya.pth"
-        self.index_path = self.model_dir / "added_IVF777_Flat_nprobe_1_alya_v2.index"
+        from config.settings import VOICE_MODEL_DIR, VOICE_MODEL_PATH, VOICE_INDEX_PATH
+        self.model_dir = Path(VOICE_MODEL_DIR)
+        self.model_path = Path(VOICE_MODEL_PATH)
+        self.index_path = Path(VOICE_INDEX_PATH)
         
         self._verify_model_files()
         self._initialize_stt()
