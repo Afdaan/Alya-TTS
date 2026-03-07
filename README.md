@@ -29,13 +29,12 @@ This service acts as a specialized worker to isolate heavy CPU/RAM tasks (RVC & 
    - Linux/Mac: `source venv/bin/activate`
 
 4. **Install Dependencies:**
+   If you are on Windows, it is recommended to downgrade `pip` to version 24.0 to avoid build errors with `fairseq`:
    ```bash
+   python -m pip install pip==24.0
    pip install -r requirements.txt
    ```
-   *Note: If you are on Windows and encounter an error with `fairseq` (missing `version.txt`), run this command instead:*
-   ```bash
-   pip install https://github.com/7777777b/fairseq/archive/refs/heads/main.zip
-   ```
+   *Note: If you still encounter `fairseq` installation errors, ensure you are using Python 3.9 or 3.10 for better compatibility.*
 
 5. **Start the Service:**
    ```bash
