@@ -16,3 +16,6 @@ pyworld
 praat-parselmouth
 torchcrepe
 python-dotenv
+av
+SpeechRecognition
+faiss-cpu

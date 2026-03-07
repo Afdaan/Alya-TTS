@@ -161,3 +161,6 @@ alya_voice/
 libs/rvc_python/base_model/*.pt
 libs/rvc_python/base_model/*.onnx
 libs/rvc_python/base_model/*.pth
+
+#Other
+.agent/
