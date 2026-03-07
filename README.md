@@ -3,7 +3,7 @@
 A standalone microservice for handling Text-to-Speech (TTS) using Retrieval-based Voice Conversion (RVC). 
 
 This repository is designed as a backend component for:
-👉 **[Alya-Bot-Telegram](file:///c:/Users/Administrator/Documents/Code/Alya-Bot-Telegram)**
+👉 **[Alya-Bot-Telegram](https://github.com/Afdaan/Alya-Bot-Telegram)**
 
 ## Architecture
 
