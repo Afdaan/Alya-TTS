@@ -39,6 +39,7 @@ class TTSRequest(BaseModel):
     chat_id: int
     reply_to_message_id: Optional[int] = None
     bot_token: Optional[str] = None
+    loading_message_id: Optional[int] = None
 
 class ModelManager:
     """Manages lazy loading and auto-unloading of heavy RVC models."""
@@ -120,6 +121,12 @@ async def process_tts_job(request: TTSRequest):
             logger.error(f"Failed to generate voice for chat {request.chat_id}")
             return
             
+        if request.loading_message_id:
+            try:
+                await bot.delete_message(chat_id=request.chat_id, message_id=request.loading_message_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete loading message {request.loading_message_id}: {e}")
+
         with open(voice_path, 'rb') as vf:
             from config.settings import TTS_SEND_TIMEOUT
             await bot.send_voice(
