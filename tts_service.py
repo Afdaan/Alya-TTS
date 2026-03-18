@@ -17,6 +17,7 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Optional
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import asynccontextmanager
 
 # 2. Third-party library imports
 from fastapi import FastAPI, BackgroundTasks, HTTPException
@@ -90,7 +91,7 @@ class ModelManager:
     async def get_executor(self):
         async with self.lock:
             if self._executor is None:
-                logger.info("⚡ Cold Start: Spawning isolated TTS process (100% Leak-Proof Protocol)...")
+                logger.info("Cold Start: Spawning isolated TTS process")
                 ctx = mp.get_context("spawn")
                 self._executor = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
             
@@ -104,7 +105,7 @@ class ModelManager:
             if self._executor and (time.time() - self.last_active_time > self.idle_timeout):
                 async with self.lock:
                     if self._executor and (time.time() - self.last_active_time > self.idle_timeout):
-                        logger.info("😴 Idle timeout reached. Terminating TTS subprocess to guarantee 100% RAM release...")
+                        logger.info("Idle timeout reached. Terminating TTS subprocess")
                         
                         try:
                             # Fast shutdown terminates the subprocess directly, letting the OS reclaim all RAM
@@ -115,14 +116,20 @@ class ModelManager:
                         self._executor = None
                         
                         gc.collect()
-                        logger.info("✨ Process terminated. RAM is completely returned to OS.")
+                        logger.info("Process terminated. RAM is completely returned to OS.")
 
 model_manager = ModelManager()
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(model_manager.cleanup_if_idle())
-    logger.info("🚀 TTS Service started and monitoring idle resource...")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    idle_monitor_task = asyncio.create_task(model_manager.cleanup_if_idle())
+    logger.info("TTS Service started. Monitoring idle resources.")
+    yield
+    idle_monitor_task.cancel()
+    if model_manager._executor:
+        model_manager._executor.shutdown(wait=False, cancel_futures=True)
+
+app = FastAPI(title="Alya TTS Microservice", lifespan=lifespan)
 
 async def process_tts_job(request: TTSRequest):
     """Background task to generate TTS and send to Telegram."""
@@ -182,9 +189,9 @@ async def process_tts_job(request: TTSRequest):
                     write_timeout=TTS_SEND_TIMEOUT,
                     connect_timeout=60
                 )
-            logger.info(f"✅ Voice sent successfully to {request.chat_id}")
+            logger.info(f"Voice sent successfully to {request.chat_id}")
         except RetryAfter as e:
-            logger.warning(f"⚠️ Telegram Flood Control hit ({e.retry_after}s). Dropping TTS job for chat {request.chat_id}.")
+            logger.warning(f"Telegram Flood Control hit ({e.retry_after}s). Dropping TTS job for chat {request.chat_id}.")
             try:
                 msg = "🎙️ <i>Gomen, the voice service is currently rate limited by Telegram. Please try again later!</i>"
                 await bot.send_message(
@@ -196,7 +203,7 @@ async def process_tts_job(request: TTSRequest):
             except Exception as notify_err:
                 logger.error(f"Failed to send rate-limit notification: {notify_err}")
         except TelegramError as e:
-            logger.error(f"❌ Failed to send voice message: {type(e).__name__} - {e}")
+            logger.error(f"Failed to send voice message: {type(e).__name__} - {e}")
             try:
                 msg = "🎙️ <i>Gomen, an error occurred while attempting to send the voice note.</i>"
                 await bot.send_message(
@@ -213,9 +220,9 @@ async def process_tts_job(request: TTSRequest):
                     os.unlink(voice_path)
                 except OSError as e:
                     logger.warning(f"Failed to delete temp voice file: {e}")
-        
+                    
     except Exception as e:
-        logger.error(f"❌ Error in processing job: {e}", exc_info=True)
+        logger.error(f"Error in processing job: {e}", exc_info=True)
 
 @app.get("/health")
 async def health_check():

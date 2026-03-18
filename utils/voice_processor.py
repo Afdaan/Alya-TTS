@@ -31,16 +31,16 @@ class VoiceProcessor:
         self.rvc_handler = None
         self.tts_available = self._initialize_rvc_tts()
         
-        logger.info(f"✅ Voice processor initialized (STT: {self.recognizer is not None}, TTS: {self.tts_available})")
+        logger.info(f"Voice processor initialized (STT: {self.recognizer is not None}, TTS: {self.tts_available})")
 
     def _verify_model_files(self):
         """Check if required RVC model files exist."""
         if not self.model_path.exists() or not self.index_path.exists():
-            logger.error(f"❌ Voice model files missing in {self.model_dir}")
+            logger.error(f"Voice model files missing in {self.model_dir}")
             raise FileNotFoundError(f"Missing RVC model files")
             
         model_size = self.model_path.stat().st_size / (1024 * 1024)
-        logger.info(f"✅ Voice model ready: {self.model_path.name} ({model_size:.1f}MB)")
+        logger.info(f"Voice model ready: {self.model_path.name} ({model_size:.1f}MB)")
 
     def _initialize_stt(self):
         """Initialize speech recognition components."""
@@ -48,7 +48,7 @@ class VoiceProcessor:
             import speech_recognition as sr
             self.recognizer = sr.Recognizer()
         except ImportError:
-            logger.error("❌ speech_recognition not installed")
+            logger.error("speech_recognition not installed")
             self.recognizer = None
     
     def _initialize_rvc_tts(self) -> bool:
@@ -58,7 +58,7 @@ class VoiceProcessor:
             if self.model_path.exists() and self.index_path.exists():
                 self.rvc_handler = RVCHandler(self.model_path, self.index_path)
         except Exception as e:
-            logger.error(f"❌ RVC Handler initialization failed: {e}")
+            logger.error(f"RVC Handler initialization failed: {e}")
             
         base_tts_available = False
         try:
@@ -71,7 +71,7 @@ class VoiceProcessor:
                 self.gtts = gTTS
                 base_tts_available = True
             except ImportError:
-                logger.error("❌ No TTS engine available")
+                logger.error("No TTS engine available")
                 
         return base_tts_available
     
@@ -120,7 +120,7 @@ class VoiceProcessor:
             return None
             
         except Exception as e:
-            logger.error(f"❌ Transcription error: {e}")
+            logger.error(f"Transcription error: {e}")
             return None
         finally:
             if 'wav_path' in locals() and wav_path != audio_path:
@@ -139,7 +139,7 @@ class VoiceProcessor:
             audio.export(wav_path, format='wav')
             return wav_path
         except Exception as e:
-            logger.error(f"❌ Error converting to WAV: {e}")
+            logger.error(f"Error converting to WAV: {e}")
             return audio_path
 
     async def text_to_speech(self, text: str, lang: str = "en") -> Optional[str]:
@@ -172,7 +172,7 @@ class VoiceProcessor:
                 
             return ogg_path if os.path.exists(ogg_path) else None
         except Exception as e:
-            logger.error(f"❌ TTS Error: {e}")
+            logger.error(f"TTS Error: {e}")
             return None
 
     def _safe_remove(self, path: str):
@@ -192,7 +192,7 @@ class VoiceProcessor:
                 return await self._generate_gtts(text, lang)
             return None
         except Exception as e:
-            logger.error(f"❌ Error generating base TTS: {e}")
+            logger.error(f"Error generating base TTS: {e}")
             return None
 
     async def _generate_edge_tts(self, text: str, lang: str) -> Optional[str]:

@@ -27,7 +27,7 @@ class RVCHandler:
         """Initialize RVC components."""
         try:
             if not self.model_path.exists() or not self.index_path.exists():
-                logger.error(f"❌ RVC model or index files missing: {self.model_path} or {self.index_path}")
+                logger.error(f"RVC model or index files missing: {self.model_path} or {self.index_path}")
                 return
             
             import sys
@@ -40,7 +40,7 @@ class RVCHandler:
             rvc_root = libs_path / "rvc_python"
             
             if not rvc_root.exists():
-                logger.error(f"❌ rvc_python not found in {libs_path}")
+                logger.error(f"rvc_python not found in {libs_path}")
                 return
 
             if str(libs_path) not in sys.path:
@@ -54,13 +54,13 @@ class RVCHandler:
             if lib_dir.exists():
                 init_file = lib_dir / "__init__.py"
                 if not init_file.exists():
-                    logger.warning(f"⚠️ {init_file} missing, creating...")
+                    logger.warning(f"{init_file} missing, creating...")
                     try:
                         init_file.touch()
                     except Exception as e:
-                        logger.error(f"❌ Could not create {init_file}: {e}")
+                        logger.error(f"Could not create {init_file}: {e}")
             else:
-                logger.error(f"❌ 'lib' directory not found in {rvc_root}")
+                logger.error(f"'lib' directory not found in {rvc_root}")
                 return
 
             if 'rvc_python' in sys.modules:
@@ -68,7 +68,7 @@ class RVCHandler:
                     if mod.startswith('rvc_python'):
                         del sys.modules[mod]
             
-            logger.info(f"🔍 RVC Root: {rvc_root}")
+            logger.info(f"RVC Root: {rvc_root}")
             
             import torch
             from rvc_python.infer import RVCInference
@@ -92,10 +92,10 @@ class RVCHandler:
             )
             
             self.is_available = True
-            logger.info(f"✅ RVC Handler ready on {self.device} (f0={RVC_F0_METHOD}, pitch={RVC_PITCH_CHANGE})")
+            logger.info(f"RVC Handler ready on {self.device} (f0={RVC_F0_METHOD}, pitch={RVC_PITCH_CHANGE})")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize RVC: {e}", exc_info=True)
+            logger.error(f"Failed to initialize RVC: {e}", exc_info=True)
             self.is_available = False
             
     async def convert_voice(self, audio_path: str, output_path: str) -> bool:
@@ -114,8 +114,8 @@ class RVCHandler:
             )
             return os.path.exists(output_path)
         except asyncio.TimeoutError:
-            logger.error("❌ RVC Conversion error: Timeout after 600 seconds")
+            logger.error("RVC Conversion error: Timeout after 600 seconds")
             return False
         except Exception as e:
-            logger.error(f"❌ RVC Conversion error: {e}", exc_info=True)
+            logger.error(f"RVC Conversion error: {e}", exc_info=True)
             return False
