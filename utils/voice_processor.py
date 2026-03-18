@@ -112,7 +112,11 @@ class VoiceProcessor:
                     try:
                         text = self.recognizer.recognize_google(audio_data, language=alt_code)
                         return text, alt_lang
-                    except: continue
+                    except sr.UnknownValueError:
+                        continue
+                    except Exception as e:
+                        logger.warning(f"Failed recognizing alternative lang {alt_code}: {e}")
+                        continue
             return None
             
         except Exception as e:
@@ -207,7 +211,8 @@ class VoiceProcessor:
             communicate = self.edge_tts.Communicate(text, voice)
             await communicate.save(mp3_path)
             return mp3_path
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Edge TTS failed ({e}), falling back to gTTS...")
             if hasattr(self, 'gtts'):
                 return await self._generate_gtts(text, lang)
             return None
@@ -220,7 +225,8 @@ class VoiceProcessor:
             tts = self.gtts(text=text, lang=gtts_lang, slow=False)
             await asyncio.to_thread(tts.save, mp3_path)
             return mp3_path
-        except Exception:
+        except Exception as e:
+            logger.error(f"gTTS failed: {e}")
             return None
 
     async def _convert_to_ogg(self, audio_path: str, output_path: str) -> str:
@@ -230,89 +236,11 @@ class VoiceProcessor:
             audio = AudioSegment.from_file(audio_path)
             audio.export(output_path, format='ogg', codec='libopus', parameters=['-ar', '48000', '-ac', '1'])
             return output_path
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to convert {audio_path} to OGG: {e}")
             return audio_path
 
-    def cleanup(self):
-        """Explicitly release heavy resources to free system RAM."""
-        logger.info("🧹 Performing EXTREME cleanup of VoiceProcessor resources...")
-        
-        if hasattr(self, 'rvc_handler') and self.rvc_handler:
-            try:
-                # 1. Break down RVC internal structures piece by piece
-                if hasattr(self.rvc_handler, 'rvc') and self.rvc_handler.rvc:
-                    logger.info("Breaking RVC internal references...")
-                    rvc = self.rvc_handler.rvc
-                    
-                    if hasattr(rvc, 'vc') and rvc.vc:
-                        vc = rvc.vc
-                        # Clear heavy model weights
-                        vc.net_g = None
-                        vc.hubert_model = None
-                        vc.pipeline = None
-                        vc.cpt = None # The loaded torch state dict
-                        vc.config = None
-                        # Delete the VC object attributes
-                        for attr in list(vc.__dict__.keys()):
-                            delattr(vc, attr)
-                    
-                    rvc.unload_model()
-                    rvc.vc = None
-                    rvc.models = {} # Clear the paths dictionary
-                    # Delete RVCInference attributes
-                    for attr in list(rvc.__dict__.keys()):
-                        delattr(rvc, attr)
-                    
-                self.rvc_handler.rvc = None
-            except Exception as e:
-                logger.warning(f"Error during RVC deep unload: {e}")
-            self.rvc_handler = None
-            
-        # 2. Clear known global leaks in RVC library modules
-        try:
-            import sys
-            # Clear pipeline globals
-            if 'rvc_python.modules.vc.pipeline' in sys.modules:
-                mod = sys.modules['rvc_python.modules.vc.pipeline']
-                if hasattr(mod, 'input_audio_path2wav'):
-                    mod.input_audio_path2wav.clear()
-                if hasattr(mod, 'cache_harvest_f0'):
-                    mod.cache_harvest_f0.cache_clear()
-            
-            # Clear any potential globals in other RVC modules
-            for mod_name in list(sys.modules.keys()):
-                if mod_name.startswith('rvc_python'):
-                    # We don't delete the module, but we can try to clear its globals
-                    # especially hidden ones like '__cache__' or heavy lists
-                    pass 
-            logger.info("Cleared RVC library internal caches.")
-        except: pass
 
-        # 3. Force Torch and Python GC to the maximum
-        try:
-            import torch
-            import gc
-            import ctypes
-            
-            # Nullify any torch related stuff that might be in scope
-            torch.cuda.empty_cache()
-            
-            # Multiple GC passes to catch nested cycles
-            for _ in range(3):
-                gc.collect()
-            
-            # 4. CRITICAL: Force glibc to release all possible memory
-            try:
-                libc = ctypes.CDLL("libc.so.6")
-                # 0 means return all free blocks 
-                libc.malloc_trim(0)
-                logger.info("✨ Executed malloc_trim(0).")
-            except Exception as e:
-                logger.debug(f"malloc_trim failed: {e}")
-                
-        except: pass
-        
-        logger.info("✅ Extreme cleanup complete. RAM resident set should drop now.")
 
     def _clean_text_for_tts(self, text: str) -> str:
         """Clean text for TTS processing."""

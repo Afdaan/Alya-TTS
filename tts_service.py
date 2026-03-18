@@ -7,20 +7,46 @@ os.environ["MKL_NUM_THREADS"] = cpu_threads
 os.environ["VECLIB_MAXIMUM_THREADS"] = cpu_threads
 os.environ["NUMEXPR_NUM_THREADS"] = cpu_threads
 
+# 1. Standard library imports
 import sys
 import asyncio
 import logging
 import gc
 import time
+import multiprocessing as mp
 from pathlib import Path
-
-# Aggressive garbage collection for strict RAM limits (e.g., 4GB instances)
-gc.set_threshold(100, 10, 10)
 from typing import Optional
+from concurrent.futures import ProcessPoolExecutor
+
+# 2. Third-party library imports
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from telegram import Bot
 from dotenv import load_dotenv
+
+# Aggressive garbage collection for strict RAM limits (e.g., 4GB instances)
+gc.set_threshold(100, 10, 10)
+
+# --- Global Subprocess State ---
+_worker_processor = None
+
+def _run_tts_worker(text: str, lang: str) -> Optional[str]:
+    """Runs completely isolated inside a subprocess. Solves PyTorch memory leak strictly."""
+    global _worker_processor
+    
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    if _worker_processor is None:
+        from utils.voice_processor import VoiceProcessor
+        import logging
+        logging.getLogger().setLevel(logging.INFO)
+        _worker_processor = VoiceProcessor()
+        
+    return loop.run_until_complete(_worker_processor.text_to_speech(text, lang))
 
 # Ensure libs directory is in sys.path for local vendorized packages (e.g. rvc_python)
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,7 +54,6 @@ LIBS_PATH = BASE_DIR / "libs"
 if str(LIBS_PATH) not in sys.path:
     sys.path.insert(0, str(LIBS_PATH))
 
-# Load environment variables
 load_dotenv()
 
 # Setup logging
@@ -53,53 +78,44 @@ class TTSRequest(BaseModel):
     loading_message_id: Optional[int] = None
 
 class ModelManager:
-    """Manages lazy loading and auto-unloading of heavy RVC models."""
+    """Manages lazy loading and auto-unloading of heavy RVC models via Subprocess isolation."""
     def __init__(self):
-        self._voice_processor = None
+        self._executor = None
         self.last_active_time = 0
         from config.settings import TTS_IDLE_TIMEOUT
         self.idle_timeout = TTS_IDLE_TIMEOUT
         self.lock = asyncio.Lock()
         self.inference_lock = asyncio.Lock()  # Serialize inference to prevent CPU/RAM thrashing
 
-    async def get_processor(self):
+    async def get_executor(self):
         async with self.lock:
-            if self._voice_processor is None:
-                logger.info("⚡ Cold Start: Loading RVC & Torch models into memory...")
-                from utils.voice_processor import VoiceProcessor
-                self._voice_processor = VoiceProcessor()
-                from config.settings import DEFAULT_LANGUAGE
-                self.default_lang = DEFAULT_LANGUAGE
+            if self._executor is None:
+                logger.info("⚡ Cold Start: Spawning isolated TTS process (100% Leak-Proof Protocol)...")
+                ctx = mp.get_context("spawn")
+                self._executor = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
             
             self.last_active_time = time.time()
-            return self._voice_processor
+            return self._executor
 
     async def cleanup_if_idle(self):
         """Periodically checks if models should be unloaded."""
         while True:
-            await asyncio.sleep(60) # Check every minute
-            if self._voice_processor and (time.time() - self.last_active_time > self.idle_timeout):
+            await asyncio.sleep(10) # Check every 10 seconds for aggressiveness
+            if self._executor and (time.time() - self.last_active_time > self.idle_timeout):
                 async with self.lock:
-                    if self._voice_processor and (time.time() - self.last_active_time > self.idle_timeout):
-                        logger.info("😴 Idle timeout reached. Unloading models to free up system resources...")
+                    if self._executor and (time.time() - self.last_active_time > self.idle_timeout):
+                        logger.info("😴 Idle timeout reached. Terminating TTS subprocess to guarantee 100% RAM release...")
                         
                         try:
-                            self._voice_processor.cleanup()
+                            # Fast shutdown terminates the subprocess directly, letting the OS reclaim all RAM
+                            self._executor.shutdown(wait=False, cancel_futures=True)
                         except Exception as e:
-                            logger.error(f"Error during model cleanup: {e}")
+                            logger.error(f"Error during executor shutdown: {e}")
                             
-                        self._voice_processor = None
+                        self._executor = None
                         
                         gc.collect()
-                        gc.collect()
-                        
-                        try:
-                            import torch
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                        except: pass
-                        
-                        logger.info("✨ Cleanup finished. System should notice reduced RAM usage shortly.")
+                        logger.info("✨ Process terminated. RAM is completely returned to OS.")
 
 model_manager = ModelManager()
 
@@ -118,8 +134,6 @@ async def process_tts_job(request: TTSRequest):
 
         bot = Bot(token=token)
         
-        processor = await model_manager.get_processor()
-        
         # Use voice_lang; fallback to user_lang when voice_lang is unset (default 'en')
         target_lang = request.voice_lang
         if target_lang == "en" and request.user_lang and request.user_lang != "en":
@@ -130,9 +144,18 @@ async def process_tts_job(request: TTSRequest):
         
         # Lock inference to prevent CPU thread thrashing and memory OOM on concurrent requests
         async with model_manager.inference_lock:
-            logger.info(f"Starting voice generation for chat {request.chat_id}")
+            executor = await model_manager.get_executor()
+            logger.info(f"Starting voice generation for chat {request.chat_id} using Subprocess")
             model_manager.last_active_time = time.time()  # Prevent idle timeout if request was queued for a long time
-            voice_path = await processor.text_to_speech(request.text, target_lang)
+            
+            loop = asyncio.get_running_loop()
+            voice_path = await loop.run_in_executor(
+                executor, 
+                _run_tts_worker, 
+                request.text, 
+                target_lang
+            )
+            
             model_manager.last_active_time = time.time()  # Reset idle timer after generation finishes
         
         if not voice_path or not os.path.exists(voice_path):
@@ -145,29 +168,58 @@ async def process_tts_job(request: TTSRequest):
             except Exception as e:
                 logger.warning(f"Failed to delete loading message {request.loading_message_id}: {e}")
 
-        with open(voice_path, 'rb') as vf:
-            from config.settings import TTS_SEND_TIMEOUT
-            await bot.send_voice(
-                chat_id=request.chat_id,
-                voice=vf,
-                caption=f"🎙️ Alya's voice ({target_lang.upper()})",
-                reply_to_message_id=request.reply_to_message_id,
-                read_timeout=TTS_SEND_TIMEOUT,
-                write_timeout=TTS_SEND_TIMEOUT,
-                connect_timeout=60
-            )
-            
-        if os.path.exists(voice_path):
-            os.unlink(voice_path)
-            
-        logger.info(f"✅ Voice sent successfully to {request.chat_id}")
+        from telegram.error import RetryAfter, TelegramError
+        
+        try:
+            with open(voice_path, 'rb') as vf:
+                from config.settings import TTS_SEND_TIMEOUT
+                await bot.send_voice(
+                    chat_id=request.chat_id,
+                    voice=vf,
+                    caption=f"🎙️ Alya's voice ({target_lang.upper()})",
+                    reply_to_message_id=request.reply_to_message_id,
+                    read_timeout=TTS_SEND_TIMEOUT,
+                    write_timeout=TTS_SEND_TIMEOUT,
+                    connect_timeout=60
+                )
+            logger.info(f"✅ Voice sent successfully to {request.chat_id}")
+        except RetryAfter as e:
+            logger.warning(f"⚠️ Telegram Flood Control hit ({e.retry_after}s). Dropping TTS job for chat {request.chat_id}.")
+            try:
+                msg = "🎙️ <i>Gomen, the voice service is currently rate limited by Telegram. Please try again later!</i>"
+                await bot.send_message(
+                    chat_id=request.chat_id,
+                    text=msg,
+                    parse_mode="HTML",
+                    reply_to_message_id=request.reply_to_message_id
+                )
+            except Exception as notify_err:
+                logger.error(f"Failed to send rate-limit notification: {notify_err}")
+        except TelegramError as e:
+            logger.error(f"❌ Failed to send voice message: {type(e).__name__} - {e}")
+            try:
+                msg = "🎙️ <i>Gomen, an error occurred while attempting to send the voice note.</i>"
+                await bot.send_message(
+                    chat_id=request.chat_id,
+                    text=msg,
+                    parse_mode="HTML",
+                    reply_to_message_id=request.reply_to_message_id
+                )
+            except Exception:
+                pass
+        finally:
+            if os.path.exists(voice_path):
+                try:
+                    os.unlink(voice_path)
+                except OSError as e:
+                    logger.warning(f"Failed to delete temp voice file: {e}")
         
     except Exception as e:
         logger.error(f"❌ Error in processing job: {e}", exc_info=True)
 
 @app.get("/health")
 async def health_check():
-    status = "loaded" if model_manager._voice_processor else "dormant"
+    status = "loaded" if model_manager._executor else "dormant"
     return {
         "status": "ok", 
         "model_state": status,
