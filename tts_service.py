@@ -1,10 +1,21 @@
 import os
+# Optimizations for CPU Inference on limited-core servers (MUST be set before torch/numpy imports)
+cpu_threads = os.getenv("RVC_CPU_THREADS", "4")
+os.environ["OMP_NUM_THREADS"] = cpu_threads
+os.environ["OPENBLAS_NUM_THREADS"] = cpu_threads
+os.environ["MKL_NUM_THREADS"] = cpu_threads
+os.environ["VECLIB_MAXIMUM_THREADS"] = cpu_threads
+os.environ["NUMEXPR_NUM_THREADS"] = cpu_threads
+
 import sys
 import asyncio
 import logging
 import gc
 import time
 from pathlib import Path
+
+# Aggressive garbage collection for strict RAM limits (e.g., 4GB instances)
+gc.set_threshold(100, 10, 10)
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -49,6 +60,7 @@ class ModelManager:
         from config.settings import TTS_IDLE_TIMEOUT
         self.idle_timeout = TTS_IDLE_TIMEOUT
         self.lock = asyncio.Lock()
+        self.inference_lock = asyncio.Lock()  # Serialize inference to prevent CPU/RAM thrashing
 
     async def get_processor(self):
         async with self.lock:
@@ -114,8 +126,14 @@ async def process_tts_job(request: TTSRequest):
             target_lang = request.user_lang
             logger.info(f"Using user_lang ({target_lang}) as fallback for default voice_lang")
 
-        logger.info(f"Generating voice for chat {request.chat_id} (lang: {target_lang})")
-        voice_path = await processor.text_to_speech(request.text, target_lang)
+        logger.info(f"Queueing voice generation for chat {request.chat_id} (lang: {target_lang})")
+        
+        # Lock inference to prevent CPU thread thrashing and memory OOM on concurrent requests
+        async with model_manager.inference_lock:
+            logger.info(f"Starting voice generation for chat {request.chat_id}")
+            model_manager.last_active_time = time.time()  # Prevent idle timeout if request was queued for a long time
+            voice_path = await processor.text_to_speech(request.text, target_lang)
+            model_manager.last_active_time = time.time()  # Reset idle timer after generation finishes
         
         if not voice_path or not os.path.exists(voice_path):
             logger.error(f"Failed to generate voice for chat {request.chat_id}")

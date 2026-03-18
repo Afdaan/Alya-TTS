@@ -20,7 +20,7 @@ VOICE_INDEX_PATH: str = os.path.join(VOICE_MODEL_DIR, "added_IVF777_Flat_nprobe_
 # RVC Engine
 RVC_ENABLED: bool = os.getenv("RVC_ENABLED", "true").lower() == "true"
 RVC_DEVICE: str = os.getenv("RVC_DEVICE", "cpu")
-RVC_CPU_THREADS: int = int(os.getenv("RVC_CPU_THREADS", "3"))
+RVC_CPU_THREADS: int = int(os.getenv("RVC_CPU_THREADS", "4"))
 RVC_IS_HALF: bool = os.getenv("RVC_IS_HALF", "false").lower() == "true"
 RVC_PITCH_CHANGE: int = int(os.getenv("RVC_PITCH_CHANGE", "0"))
 RVC_F0_METHOD: str = os.getenv("RVC_F0_METHOD", "rmvpe")
@@ -32,5 +32,5 @@ RVC_QUEUE_SIZE: int = int(os.getenv("RVC_QUEUE_SIZE", "2"))
 
 # TTS Service
 TTS_PORT: int = int(os.getenv("TTS_PORT", "5001"))
-TTS_IDLE_TIMEOUT: int = int(os.getenv("TTS_IDLE_TIMEOUT", "120"))
+TTS_IDLE_TIMEOUT: int = int(os.getenv("TTS_IDLE_TIMEOUT", "60"))  # Unload from RAM after 60s of inactivity
 TTS_SEND_TIMEOUT: int = int(os.getenv("TTS_SEND_TIMEOUT", "120"))
